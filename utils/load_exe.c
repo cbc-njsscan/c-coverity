@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <windows.h>
 #include "load_exe.h"
 
 typedef long int(__stdcall *NtUnmapViewOfSectionF)(HANDLE, PVOID);

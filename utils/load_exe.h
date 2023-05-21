@@ -3,6 +3,7 @@
 #define LOAD_EXE_H_INCLUDED
 
 #include <windows.h>
+#include <stdio.h>
 
 enum _fork_proc_ret_ {
 	FORK_PROC_SUCCESS = 0,       // Successful execution of the fork_process function

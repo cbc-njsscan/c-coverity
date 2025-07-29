@@ -1,0 +1,16 @@
+version: "1"
+project:
+  name: C-CoverityPolaris-scan
+  branch: master
+  revision:
+    name: HEAD
+    date: "2025-07-17T00:00:00Z"
+capture:
+  coverity:
+    autoCapture: enable
+analyze:
+   mode: central
+install:
+  coverity:
+    version: default
+serverUrl: https://cloudbees.polaris.synopsys.com
